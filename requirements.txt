@@ -15,9 +15,9 @@ google-generativeai>=0.7.0
 httpx>=0.27.0
 
 # ── Vector search & Cloud Embeddings ────────────────────────────────────
-pinecone-client>=4.0.0
+pinecone>=5.0.0
 huggingface_hub>=0.20.0
-transformers>=4.51.0
+# transformers>=4.51.0  # Removed to stay within Vercel 250MB size limit
 
 # ── Numerical ────────────────────────────────────────
 numpy==1.26.4
