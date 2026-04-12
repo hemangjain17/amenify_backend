@@ -91,7 +91,7 @@ def stream_openai(
 # ── Gemini ──────────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
-def _gemini_init(model_name: str = "gemini-1.5-flash"):
+def _gemini_init(model_name: str = "gemini-3-flash-preview"):
     """Configure Gemini SDK and return a GenerativeModel instance."""
     try:
         import google.generativeai as genai
@@ -147,7 +147,7 @@ def _split_messages_for_gemini(
 
 def chat_gemini(
     messages: list[dict],
-    model: str = "gemini-1.5-flash",
+    model: str = "gemini-3-flash-preview",
     temperature: float = 0.2,
     max_tokens: int = 1024,
 ) -> str:
@@ -170,7 +170,7 @@ def chat_gemini(
 
 def stream_gemini(
     messages: list[dict],
-    model: str = "gemini-1.5-flash",
+    model: str = "gemini-3-flash-preview",
     temperature: float = 0.2,
     max_tokens: int = 1024,
 ) -> Iterator[str]:
@@ -269,19 +269,16 @@ def stream_hf(
 # ---------------------------------------------------------------------------
 
 def _get_provider_name() -> str:
-    return os.environ.get("LLM_PROVIDER", "huggingface").lower().strip()
+    return os.environ.get("LLM_PROVIDER", "gemini").lower().strip()
 
 
 def active_provider() -> str:
-    """
-    Returns a human-readable string identifying the active LLM.
-    e.g. "openai/gpt-4o-mini", "gemini/gemini-1.5-flash", "ollama/llama3.1:8b"
-    """
+    
     p = _get_provider_name()
     if p == "openai":
         return f"openai/{os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')}"
     if p == "gemini":
-        return f"gemini/{os.environ.get('GEMINI_MODEL', 'gemini-1.5-flash')}"
+        return f"gemini/{os.environ.get('GEMINI_MODEL', 'gemini-3-flash-preview')}"
     if p == "huggingface":
         return f"huggingface/{os.environ.get('HF_MODEL', 'zai-org/GLM-5.1:together')}"
     return p
@@ -304,7 +301,7 @@ def chat(messages: list[dict]) -> str:
     if p == "gemini":
         return chat_gemini(
             messages,
-            model=os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
+            model=os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview"),
             temperature=temperature,
         )
     if p == "huggingface":
@@ -335,7 +332,7 @@ def stream_chat(messages: list[dict]) -> Iterator[str]:
     elif p == "gemini":
         yield from stream_gemini(
             messages,
-            model=os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
+            model=os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview"),
             temperature=temperature,
         )
     elif p == "huggingface":
