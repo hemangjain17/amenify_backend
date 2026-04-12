@@ -12,7 +12,8 @@ sse-starlette==2.1.0
 # Google Gemini (optional — set LLM_PROVIDER=gemini)
 google-generativeai>=0.7.0
 # Hugging Face via OpenAI schema (set LLM_PROVIDER=huggingface)
-openai>=1.0.0
+openai>=1.52.0
+httpx<0.28.0
 
 # ── Vector search & Cloud Embeddings ────────────────────────────────────
 pinecone>=5.0.0

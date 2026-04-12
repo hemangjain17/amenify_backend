@@ -233,7 +233,9 @@ def chat_hf(
         temperature=temperature,
         max_tokens=max_tokens,
     )
-    return resp.choices[0].message.content.strip()
+    if resp.choices:
+        return resp.choices[0].message.content.strip()
+    return ""
 
 
 def stream_hf(
@@ -255,9 +257,10 @@ def stream_hf(
         stream=True,
     )
     for chunk in stream:
-        delta = chunk.choices[0].delta
-        if delta.content:
-            yield delta.content
+        if chunk.choices and len(chunk.choices) > 0:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
 
 
 # ---------------------------------------------------------------------------
