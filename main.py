@@ -251,22 +251,23 @@ async def chat_endpoint(req: ChatRequest):
         yield {"data": json.dumps({"status_text": "Searching knowledge base..."})}
         
         # ── 1. Query Rewriting Layer ───────────────────────────────────────────
+        # ── 1. Query Rewriting Layer ───────────────────────────────────────────
         search_query = req.message
-        if history:
-            history_str = "\n".join([f"{m['role']}: {m['content']}" for m in history[-4:]])
-            rewrite_prompt = (
-                "You are a query rewriter. Given the conversation history, rewrite the user's latest query "
-                "to make it highly specific for a search engine. Output ONLY the rewritten query text.\n\n"
-                f"History:\n{history_str}\n\nLatest Query: {req.message}"
-            )
-            try:
-                # Wrap synchronous chat call in thread
-                expanded = await asyncio.to_thread(lambda: llm.chat([{"role": "user", "content": rewrite_prompt}]).strip())
-                if expanded and len(expanded) < 200:
-                    search_query = expanded
-                    print(f"[Main] Rewrote query to: {search_query}")
-            except Exception as exc:
-                print(f"[Main] Query rewrite failed: {exc}")
+        history_str = "\n".join([f"{m['role']}: {m['content']}" for m in history[-4:]]) if history else "(No prior history)"
+        rewrite_prompt = (
+            "You are an expert search query rewriter. Given the user's latest query, and optionally some conversation history, "
+            "rewrite the query to make it highly specific, clear, and optimized for a semantic search engine. "
+            "Output ONLY the rewritten query text.\n\n"
+            f"History:\n{history_str}\n\nLatest Query: {req.message}"
+        )
+        try:
+            # Wrap synchronous chat call in thread
+            expanded = await asyncio.to_thread(lambda: llm.chat([{"role": "user", "content": rewrite_prompt}]).strip())
+            if expanded and len(expanded) < 200:
+                search_query = expanded
+                print(f"[Main] Rewrote query to: {search_query}")
+        except Exception as exc:
+            print(f"[Main] Query rewrite failed: {exc}")
 
         # ── 2. RAG retrieval ──────────────────────────────────────────────────────
         context_chunks: list[dict[str, Any]] = []
@@ -283,20 +284,22 @@ async def chat_endpoint(req: ChatRequest):
             context_chunks = []
             
         # ── 4. Guardrail Self-Correction ───────────────────────────────────────
-        if context_chunks:
-            ctx_text = "\n".join([c["text"] for c in context_chunks])
-            guard_prompt = (
-                "Does the retrieved context actually contain the answer to the user query? "
-                "Respond ONLY with 'YES' or 'NO'.\n\n"
-                f"Query: {search_query}\n\nContext:\n{ctx_text}"
-            )
-            try:
-                guard_resp = await asyncio.to_thread(lambda: llm.chat([{"role": "user", "content": guard_prompt}]).strip().upper())
-                if "NO" in guard_resp:
-                    print("[Main] Guardrail triggered: Context does not contain answer.")
-                    context_chunks = []
-            except Exception as exc:
-                pass
+        # Note: Disabled because smaller LLMs often fail the YES/NO binary check,
+        # aggressively wiping out valid context chunks before the final generation.
+        # if context_chunks:
+        #     ctx_text = "\n".join([c["text"] for c in context_chunks])
+        #     guard_prompt = (
+        #         "Does the retrieved context actually contain the answer to the user query? "
+        #         "Respond ONLY with 'YES' or 'NO'.\n\n"
+        #         f"Query: {search_query}\n\nContext:\n{ctx_text}"
+        #     )
+        #     try:
+        #         guard_resp = await asyncio.to_thread(lambda: llm.chat([{"role": "user", "content": guard_prompt}]).strip().upper())
+        #         if "NO" in guard_resp:
+        #             print("[Main] Guardrail triggered: Context does not contain answer.")
+        #             context_chunks = []
+        #     except Exception as exc:
+        #         pass
                 
         found_in_kb = len(context_chunks) > 0
 

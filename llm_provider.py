@@ -273,7 +273,6 @@ def _get_provider_name() -> str:
 
 
 def active_provider() -> str:
-    
     p = _get_provider_name()
     if p == "openai":
         return f"openai/{os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')}"
@@ -301,7 +300,7 @@ def chat(messages: list[dict]) -> str:
     if p == "gemini":
         return chat_gemini(
             messages,
-            model=os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview"),
+            model=os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
             temperature=temperature,
         )
     if p == "huggingface":
@@ -332,7 +331,7 @@ def stream_chat(messages: list[dict]) -> Iterator[str]:
     elif p == "gemini":
         yield from stream_gemini(
             messages,
-            model=os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview"),
+            model=os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
             temperature=temperature,
         )
     elif p == "huggingface":

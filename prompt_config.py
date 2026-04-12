@@ -87,6 +87,7 @@ def build_system_prompt(context_chunks: list[dict[str, Any]]) -> str:
     """
     if not context_chunks:
         context = "(No relevant context found in knowledge base.)"
+        print(context)
         return SYSTEM_TEMPLATE.format(context=context)
 
     sections: list[str] = []
