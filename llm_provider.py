@@ -196,67 +196,68 @@ def stream_gemini(
 
 
 # ---------------------------------------------------------------------------
-# ── Ollama ──────────────────────────────────────────────────────────────────
+# ── Hugging Face ────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
-def chat_ollama(
+def _hf_client():
+    try:
+        from openai import OpenAI
+    except ImportError as e:
+        raise ImportError("Run: pip install openai") from e
+
+    hf_token = os.environ.get("HF_TOKEN", "").strip()
+    if not hf_token:
+        raise EnvironmentError(
+            "HF_TOKEN is not set. Add it to your .env file or environment variables."
+        )
+    return OpenAI(
+        base_url="https://router.huggingface.co/v1",
+        api_key=hf_token,
+    )
+
+
+def chat_hf(
     messages: list[dict],
-    model: str = "glm-5.1:cloud",
-    base_url: str = "http://localhost:11434",
+    model: str = "zai-org/GLM-5.1:together",
+    temperature: float = 0.2,
+    max_tokens: int = 1024,
 ) -> str:
     """
-    Blocking Ollama chat via its REST API.
-    Requires a running Ollama server (ollama serve).
+    Blocking Hugging Face chat via OpenAI-compatible API.
     Returns the full assistant reply as a string.
     """
-    try:
-        import httpx
-    except ImportError as e:
-        raise ImportError("Run: pip install httpx") from e
-
-    with httpx.Client(base_url=base_url, timeout=120.0) as client:
-        resp = client.post(
-            "/api/chat",
-            json={"model": model, "messages": messages, "stream": False},
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"].strip()
+    client = _hf_client()
+    resp = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return resp.choices[0].message.content.strip()
 
 
-def stream_ollama(
+def stream_hf(
     messages: list[dict],
-    model: str = "glm-5.1:cloud",
-    base_url: str = "http://localhost:11434",
+    model: str = "zai-org/GLM-5.1:together",
+    temperature: float = 0.2,
+    max_tokens: int = 1024,
 ) -> Iterator[str]:
     """
-    Streaming Ollama chat via its REST API.
-    Yields string tokens as they arrive from the local server.
-    Requires a running Ollama server (ollama serve).
+    Streaming Hugging Face chat via OpenAI-compatible API.
+    Yields string tokens as they arrive.
     """
-    try:
-        import httpx
-    except ImportError as e:
-        raise ImportError("Run: pip install httpx") from e
-
-    with httpx.Client(base_url=base_url, timeout=120.0) as client:
-        with client.stream(
-            "POST",
-            "/api/chat",
-            json={"model": model, "messages": messages, "stream": True},
-        ) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                content = data.get("message", {}).get("content", "")
-                if content:
-                    yield content
-                if data.get("done"):
-                    break
+    client = _hf_client()
+    stream = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta
+        if delta.content:
+            yield delta.content
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +266,7 @@ def stream_ollama(
 # ---------------------------------------------------------------------------
 
 def _get_provider_name() -> str:
-    return os.environ.get("LLM_PROVIDER", "ollama").lower().strip()
+    return os.environ.get("LLM_PROVIDER", "huggingface").lower().strip()
 
 
 def active_provider() -> str:
@@ -278,8 +279,8 @@ def active_provider() -> str:
         return f"openai/{os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')}"
     if p == "gemini":
         return f"gemini/{os.environ.get('GEMINI_MODEL', 'gemini-1.5-flash')}"
-    if p == "ollama":
-        return f"ollama/{os.environ.get('OLLAMA_MODEL', 'glm-5.1:cloud')}"
+    if p == "huggingface":
+        return f"huggingface/{os.environ.get('HF_MODEL', 'zai-org/GLM-5.1:together')}"
     return p
 
 
@@ -303,14 +304,14 @@ def chat(messages: list[dict]) -> str:
             model=os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
             temperature=temperature,
         )
-    if p == "ollama":
-        return chat_ollama(
+    if p == "huggingface":
+        return chat_hf(
             messages,
-            model=os.environ.get("OLLAMA_MODEL", "llama3"),
-            base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+            model=os.environ.get("HF_MODEL", "zai-org/GLM-5.1:together"),
+            temperature=temperature,
         )
     raise ValueError(
-        f"Unknown LLM_PROVIDER: {p!r}. Choose: openai | gemini | ollama"
+        f"Unknown LLM_PROVIDER: {p!r}. Choose: openai | gemini | huggingface"
     )
 
 
@@ -334,13 +335,13 @@ def stream_chat(messages: list[dict]) -> Iterator[str]:
             model=os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
             temperature=temperature,
         )
-    elif p == "ollama":
-        yield from stream_ollama(
+    elif p == "huggingface":
+        yield from stream_hf(
             messages,
-            model=os.environ.get("OLLAMA_MODEL", "llama3"),
-            base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+            model=os.environ.get("HF_MODEL", "zai-org/GLM-5.1:together"),
+            temperature=temperature,
         )
     else:
         raise ValueError(
-            f"Unknown LLM_PROVIDER: {p!r}. Choose: openai | gemini | ollama"
+            f"Unknown LLM_PROVIDER: {p!r}. Choose: openai | gemini | huggingface"
         )
