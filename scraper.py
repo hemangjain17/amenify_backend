@@ -17,6 +17,7 @@ import asyncio
 import json
 import os
 import re
+import hashlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -78,7 +79,34 @@ POLL_INTERVAL = 3       # seconds between Firecrawl status polls
 WAIT_TIMEOUT  = 300     # seconds before giving up
 
 DATA_DIR      = Path(__file__).parent.parent / "data"
-KB_RECORDS_PATH = DATA_DIR / "kb_records.json"   # rich structured output
+KB_RECORDS_PATH  = DATA_DIR / "kb_records.json"   # rich structured output
+HASH_STORE_PATH  = DATA_DIR / "page_hashes.json"   # MD5 hash per URL
+
+# ---------------------------------------------------------------------------
+# Content-hash helpers (diff detection)
+# ---------------------------------------------------------------------------
+
+def _load_hashes() -> dict[str, str]:
+    """Load stored MD5 hashes keyed by URL."""
+    if HASH_STORE_PATH.exists():
+        try:
+            return json.loads(HASH_STORE_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def _save_hashes(hashes: dict[str, str]) -> None:
+    """Persist MD5 hashes to disk."""
+    HASH_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    HASH_STORE_PATH.write_text(
+        json.dumps(hashes, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _content_hash(markdown: str) -> str:
+    """Return MD5 hex digest of page markdown, used for change detection."""
+    return hashlib.md5(markdown.encode("utf-8")).hexdigest()
 
 # ---------------------------------------------------------------------------
 # Firecrawl JSON schema — what we want extracted per page
@@ -284,11 +312,12 @@ def build_knowledge_base(
 ) -> list[dict[str, Any]]:
     """
     Full pipeline:
-    1. Load existing kb_records.json (incremental upsert).
+    1. Load existing kb_records.json and page_hashes.json.
     2. Batch-fetch all target URLs via Firecrawl (markdown + JSON schema).
-    3. Merge structured JSON fields + markdown + link list into one record per URL.
-    4. Save to output_path.
-    5. Return full record list.
+    3. Skip pages whose content hash hasn't changed (saves API credits).
+    4. Merge structured JSON fields + markdown + link list into one record per URL.
+    5. Save records and updated hashes.
+    6. Return full record list.
     """
     urls = urls or AMENIFY_URLS
 
@@ -306,11 +335,19 @@ def build_knowledge_base(
     preserved = [r for r in existing if r.get("url", "").rstrip("/") not in urls_being_scraped]
     print(f"[Scraper] Preserved {len(preserved)} records from un-touched URLs.")
 
+    # Build a lookup of all existing records by URL (for carrying forward unchanged)
+    existing_by_url = {r.get("url", "").rstrip("/"): r for r in existing}
+
+    # ── Load existing content hashes ────────────────────────────────────────
+    existing_hashes = _load_hashes()
+
     # ── Fetch via Firecrawl ─────────────────────────────────────────────────
     page_map = batch_fetch_pages(urls)
 
-    # ── Build rich records ──────────────────────────────────────────────────
+    # ── Build rich records (with hash diff detection) ───────────────────────
     new_records: list[dict[str, Any]] = []
+    changed_urls: list[str] = []
+    skipped_urls: list[str] = []
     scraped_at = datetime.now(tz=timezone.utc).isoformat()
 
     for url in urls:
@@ -318,11 +355,29 @@ def build_knowledge_base(
         page_data  = page_map.get(lookup_key)
         if not page_data:
             print(f"  [WARN] No data for {url}")
+            # Carry forward old record if available
+            if lookup_key in existing_by_url:
+                new_records.append(existing_by_url[lookup_key])
             continue
 
         markdown  = page_data["markdown"]
         extracted = page_data["json"]       # structured fields from Firecrawl
         meta      = page_data["metadata"]
+
+        # ── Diff detection ──────────────────────────────────────────────────
+        new_hash = _content_hash(markdown)
+        old_hash = existing_hashes.get(lookup_key, "")
+
+        if new_hash == old_hash and lookup_key in existing_by_url:
+            # Content unchanged — carry forward existing record
+            new_records.append(existing_by_url[lookup_key])
+            skipped_urls.append(url)
+            print(f"  [SKIP] No change: {url}")
+            continue
+
+        # Content changed or first scrape — build new record
+        changed_urls.append(url)
+        existing_hashes[lookup_key] = new_hash
 
         # Merge CTA links: prefer Firecrawl-extracted, supplement from markdown
         json_ctas = extracted.get("cta_links") or []
@@ -341,6 +396,7 @@ def build_knowledge_base(
             "cta_links":     all_ctas,
             "faq":           extracted.get("faq") or [],
             "raw_markdown":  markdown,
+            "content_hash":  new_hash,
             "og_description": meta.get("description", ""),
             "scraped_at":    scraped_at,
         }
@@ -356,12 +412,19 @@ def build_knowledge_base(
 
     all_records = preserved + new_records
 
+    # ── Save knowledge base + updated hashes ────────────────────────────────
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(all_records, f, indent=2, ensure_ascii=False)
 
-    print(f"\n[Scraper] Saved {len(all_records)} records -> {output_path}")
+    _save_hashes(existing_hashes)
+
+    print(
+        f"\n[Scraper] Saved {len(all_records)} records -> {output_path}\n"
+        f"          Changed: {len(changed_urls)} | Skipped (no change): {len(skipped_urls)}"
+    )
     return all_records
+
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@ from huggingface_hub import InferenceClient
 # Paths & constants
 # ---------------------------------------------------------------------------
 BASE_DIR        = Path(__file__).parent.parent
-KB_RECORDS_PATH = BASE_DIR / "data" / "kb_records.json"
+KB_RECORDS_PATH = BASE_DIR / "backend" / "scraped_data_all.json"
 
 INDEX_NAME      = "amenify-kb"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # 384 dimensions
@@ -273,16 +273,16 @@ class PineconeKB:
             matches = res.get('matches', [])
             if not matches: return []
             
-            # Step 2: Reranking Selection (Disabled per user request)
             # texts_to_score = [m['metadata']['text'] for m in matches]
+            
+            # Step 2: Reranking Selection
             # rerank_scores = _rerank_hf(query, texts_to_score)
             
-            # Use base Pinecone similarity scores instead of hitting the HF API
+            # scored_matches = list(zip(matches, rerank_scores))
+            # # scored_matches = list(zip(matches, texts_to_score))
+            # # Sort descending
+            # scored_matches.sort(key=lambda x: x[1], reverse=True)
             scored_matches = [(m, m.get('score', 0.0)) for m in matches]
-            
-            # Sort descending (though Pinecone already returns them sorted)
-            scored_matches.sort(key=lambda x: x[1], reverse=True)
-            
             # Extract top 3 absolute best
             hits = []
             for match, rerank_score in scored_matches[:3]:

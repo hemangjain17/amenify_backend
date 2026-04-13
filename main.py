@@ -53,6 +53,7 @@ from knowledge_base import KnowledgeBase
 import llm_provider as llm                   # flat functions: llm.stream_chat(), llm.chat()
 from prompt_config import build_system_prompt
 from scraper import run_scrape_once, get_scrape_status
+# from middleware.auth import BearerAuthMiddleware
 
 # ---------------------------------------------------------------------------
 # Shared application state
@@ -116,13 +117,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],          # tighten in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# # CORS — defaults to "*" for local dev; set ALLOWED_ORIGINS in production
+# _raw_origins = os.environ.get("ALLOWED_ORIGINS", "*")
+# _allowed_origins: list[str] = (
+#     [o.strip() for o in _raw_origins.split(",") if o.strip()]
+#     if _raw_origins != "*"
+#     else ["*"]
+# )
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=_allowed_origins,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 # Serve built frontend dist in production
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
@@ -338,12 +347,47 @@ async def chat_endpoint(req: ChatRequest):
 
         producer_future = loop.run_in_executor(None, _produce)
 
+        in_think = False
+        buffer = ""
+
         while True:
             stream_token = await token_queue.get()
             if stream_token is None:
+                if buffer and not in_think:
+                    full_reply_parts.append(buffer)
+                    yield {"data": json.dumps({"token": buffer})}
                 break
-            full_reply_parts.append(stream_token)
-            yield {"data": json.dumps({"token": stream_token})}
+            
+            buffer += stream_token
+
+            if not in_think:
+                if "<think>" in buffer:
+                    pre_think, rest = buffer.split("<think>", 1)
+                    if pre_think:
+                        full_reply_parts.append(pre_think)
+                        yield {"data": json.dumps({"token": pre_think})}
+                    in_think = True
+                    buffer = rest
+                elif "<" in buffer:
+                    # Potential start of <think>, hold it in buffer
+                    if len(buffer) > 10: 
+                        # False alarm, flush it
+                        full_reply_parts.append(buffer)
+                        yield {"data": json.dumps({"token": buffer})}
+                        buffer = ""
+                else:
+                    # Safe to stream
+                    full_reply_parts.append(buffer)
+                    yield {"data": json.dumps({"token": buffer})}
+                    buffer = ""
+            else:
+                if "</think>" in buffer:
+                    _, post_think = buffer.split("</think>", 1)
+                    in_think = False
+                    buffer = post_think
+                else:
+                    # Still thinking. Keep only tail of buffer to detect boundary.
+                    buffer = buffer[-10:]
 
         await producer_future
         reply_text = "".join(full_reply_parts)
@@ -351,7 +395,7 @@ async def chat_endpoint(req: ChatRequest):
         # Persist turn in session history
         history.append({"role": "user",      "content": req.message})
         history.append({"role": "assistant", "content": reply_text})
-
+        print(reply_text)
         # Send final metadata event
         yield {
             "data": json.dumps({

@@ -91,7 +91,7 @@ def stream_openai(
 # ── Gemini ──────────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
-def _gemini_init(model_name: str = "gemini-3-flash-preview"):
+def _gemini_init(model_name: str = "gemma-4-31b-it"):
     """Configure Gemini SDK and return a GenerativeModel instance."""
     try:
         import google.generativeai as genai
@@ -147,7 +147,7 @@ def _split_messages_for_gemini(
 
 def chat_gemini(
     messages: list[dict],
-    model: str = "gemini-3-flash-preview",
+    model: str = "gemma-4-31b-it",
     temperature: float = 0.2,
     max_tokens: int = 1024,
 ) -> str:
@@ -170,8 +170,8 @@ def chat_gemini(
 
 def stream_gemini(
     messages: list[dict],
-    model: str = "gemini-3-flash-preview",
-    temperature: float = 0.2,
+    model: str = "gemma-4-31b-it",
+    temperature: float = 0.3,
     max_tokens: int = 1024,
 ) -> Iterator[str]:
     """
